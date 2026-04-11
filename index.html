@@ -184,6 +184,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
   </div>
 
+  <div class="menu-section">
+    <button class="ref-toggle" id="logo-toggle" onclick="toggleLogoPanel()">
+      <span id="logo-status-text">ロゴ画像を設定する（未設定）</span>
+      <span class="arrow">▼</span>
+    </button>
+    <div class="ref-list" id="logo-panel">
+      <div style="padding:12px;font-size:13px;color:#8090a0;">
+        <p style="margin-bottom:8px;">スマホの写真やファイルからチームロゴ画像を選んでください。ファイル名は <code>LAD.png</code> のようにチーム略称にしてください。一度設定すればこのブラウザに保存されます。</p>
+        <p style="margin-bottom:8px;font-size:11px;color:#607080;">略称一覧: NYY BOS BAL TB TOR CLE MIN CWS DET KC HOU SEA LAA OAK TEX ATL NYM PHI MIA WSH CHC STL MIL CIN PIT LAD SD SF ARI COL</p>
+        <input type="file" id="logo-file-input" accept="image/*" multiple style="display:none;" onchange="handleLogoFiles(this.files)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-small" onclick="document.getElementById('logo-file-input').click()">画像を選択</button>
+          <button class="btn btn-secondary btn-small" onclick="clearLogos()">ロゴをリセット</button>
+        </div>
+        <div id="logo-preview" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;"></div>
+      </div>
+    </div>
+  </div>
+
   <button class="btn btn-primary" style="width:100%;max-width:420px;padding:14px;font-size:16px;" onclick="startGame()">ゲームスタート</button>
   <div style="height:20px;"></div>
 </div>
@@ -256,28 +275,109 @@ const MLB_TEAMS = [
   { name:"ロッキーズ", abbr:"COL", city:"デンバー", state:"コロラド州", cityEn:"Denver, CO", league:"NL", division:"West", color1:"#333366", color2:"#C4CED4", lat:39.756, lon:-104.994 },
 ];
 
-// ===== LOGO SUPPORT =====
-// logos/ フォルダに {ABBR}.png を置けば自動で使う。無ければテキストにフォールバック。
-const LOGO_DIR = 'logos/';
-const logoCache = {}; // abbr -> true/false (exists or not)
+// ===== LOGO SUPPORT (IndexedDB) =====
+const DB_NAME = 'mlb_city_match';
+const DB_STORE = 'logos';
+const logoDataURLs = {}; // abbr -> dataURL (in-memory cache)
 
-function checkLogo(abbr) {
-  return new Promise(resolve => {
-    if (abbr in logoCache) return resolve(logoCache[abbr]);
-    const img = new Image();
-    img.onload = () => { logoCache[abbr] = true; resolve(true); };
-    img.onerror = () => { logoCache[abbr] = false; resolve(false); };
-    img.src = LOGO_DIR + abbr + '.png';
+function openLogoDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(DB_STORE, { keyPath: 'abbr' });
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e);
   });
 }
 
-async function preloadLogos() {
-  await Promise.all(MLB_TEAMS.map(t => checkLogo(t.abbr)));
+async function saveLogo(abbr, dataURL) {
+  const db = await openLogoDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put({ abbr, dataURL });
+    tx.oncomplete = () => { logoDataURLs[abbr] = dataURL; resolve(); };
+    tx.onerror = e => reject(e);
+  });
 }
 
-function logoImgTag(abbr, size) {
-  if (logoCache[abbr]) {
-    return `<img src="${LOGO_DIR}${abbr}.png" alt="${abbr}" style="width:${size||'100%'};height:${size||'100%'};object-fit:contain;">`;
+async function loadAllLogos() {
+  try {
+    const db = await openLogoDB();
+    return new Promise(resolve => {
+      const tx = db.transaction(DB_STORE, 'readonly');
+      const req = tx.objectStore(DB_STORE).getAll();
+      req.onsuccess = () => {
+        (req.result || []).forEach(item => { logoDataURLs[item.abbr] = item.dataURL; });
+        resolve();
+      };
+      req.onerror = () => resolve();
+    });
+  } catch(e) { /* IndexedDB not available, continue without logos */ }
+}
+
+async function clearLogos() {
+  try {
+    const db = await openLogoDB();
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).clear();
+    tx.oncomplete = () => {
+      Object.keys(logoDataURLs).forEach(k => delete logoDataURLs[k]);
+      updateLogoStatus();
+      buildRefList();
+      document.getElementById('logo-preview').innerHTML = '';
+    };
+  } catch(e) {}
+}
+
+function handleLogoFiles(files) {
+  Array.from(files).forEach(file => {
+    // ファイル名から略称を取得 (LAD.png -> LAD)
+    const match = file.name.match(/^([A-Z]{2,3})\./i);
+    if (!match) return;
+    const abbr = match[1].toUpperCase();
+    if (!MLB_TEAMS.find(t => t.abbr === abbr)) return;
+
+    const reader = new FileReader();
+    reader.onload = async e => {
+      await saveLogo(abbr, e.target.result);
+      updateLogoStatus();
+      buildRefList();
+      showLogoPreview();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function updateLogoStatus() {
+  const count = Object.keys(logoDataURLs).length;
+  const el = document.getElementById('logo-status-text');
+  if (el) el.textContent = count > 0 ? `ロゴ画像を設定する（${count}/30 設定済み）` : 'ロゴ画像を設定する（未設定）';
+}
+
+function showLogoPreview() {
+  const container = document.getElementById('logo-preview');
+  if (!container) return;
+  container.innerHTML = '';
+  MLB_TEAMS.forEach(t => {
+    if (!logoDataURLs[t.abbr]) return;
+    const img = document.createElement('img');
+    img.src = logoDataURLs[t.abbr];
+    img.title = t.abbr;
+    img.style.cssText = 'width:28px;height:28px;border-radius:50%;object-fit:contain;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);';
+    container.appendChild(img);
+  });
+}
+
+function toggleLogoPanel() {
+  const toggle = document.getElementById('logo-toggle');
+  const panel = document.getElementById('logo-panel');
+  toggle.classList.toggle('open');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) showLogoPreview();
+}
+
+function logoImgTag(abbr) {
+  if (logoDataURLs[abbr]) {
+    return `<img src="${logoDataURLs[abbr]}" alt="${abbr}">`;
   }
   return abbr;
 }
@@ -385,11 +485,11 @@ function renderMarkers() {
 
     // Show logo or abbr on matched
     if (isMatched) {
-      if (logoCache[team.abbr]) {
+      if (logoDataURLs[team.abbr]) {
         markerGroup.append('image')
-          .attr('href', LOGO_DIR + team.abbr + '.png')
-          .attr('x', px - 8).attr('y', py - 8)
-          .attr('width', 16).attr('height', 16)
+          .attr('href', logoDataURLs[team.abbr])
+          .attr('x', px - 10).attr('y', py - 10)
+          .attr('width', 20).attr('height', 20)
           .style('pointer-events', 'none');
       } else {
         markerGroup.append('text')
@@ -591,54 +691,41 @@ function showToast(msg, type) {
 }
 
 // ===== CORRECT ANSWER CELEBRATION =====
-function celebrate(px, py) {
-  // Mini confetti burst from the matched point
+function celebrate(svgX, svgY) {
+  const mapEl = document.getElementById('map-container');
+  const svgEl = mapEl ? mapEl.querySelector('svg') : null;
+  if (!svgEl) return;
+
+  // SVG座標 → スクリーン座標変換
+  const pt = svgEl.createSVGPoint();
+  pt.x = svgX; pt.y = svgY;
+  const ctm = svgEl.getScreenCTM();
+  if (!ctm) return;
+  const screenPt = pt.matrixTransform(ctm);
+  const screenX = screenPt.x;
+  const screenY = screenPt.y;
+
   const container = document.createElement('div');
   container.className = 'confetti-container';
   document.body.appendChild(container);
 
-  // Get map container position to convert SVG coords to screen coords
-  const mapEl = document.getElementById('map-container');
-  const rect = mapEl.getBoundingClientRect();
-  const svgEl = mapEl.querySelector('svg');
-  if (!svgEl) { container.remove(); return; }
-  const svgRect = svgEl.getBoundingClientRect();
-  const screenX = svgRect.left + (px / svgEl.viewBox.baseVal.width || 1) * svgRect.width;
-  const screenY = svgRect.top + (py / (svgEl.viewBox.baseVal.height || 1)) * svgRect.height;
-
   const colors = ['#ffd700','#ff6b35','#4CAF50','#2196F3','#e91e63','#fff'];
-  const shapes = ['circle','square'];
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 16; i++) {
     const c = document.createElement('div');
     c.className = 'confetti';
     const color = colors[Math.floor(Math.random() * colors.length)];
-    const shape = shapes[Math.floor(Math.random() * shapes.length)];
-    const angle = (Math.random() * 360) * Math.PI / 180;
-    const dist = 30 + Math.random() * 60;
+    const angle = (Math.random() * 2 * Math.PI);
+    const dist = 40 + Math.random() * 80;
     const dx = Math.cos(angle) * dist;
-    const dy = Math.sin(angle) * dist - 80; // bias upward
-    c.style.cssText = `
-      left:${screenX}px;top:${screenY}px;
-      background:${color};
-      border-radius:${shape === 'circle' ? '50%' : '1px'};
-      width:${5 + Math.random()*5}px;
-      height:${5 + Math.random()*5}px;
-      animation:confettiFall ${0.6 + Math.random()*0.6}s ease-out forwards;
-      --dx:${dx}px;--dy:${dy}px;
-    `;
+    const dy = Math.sin(angle) * dist - 50;
+    const size = 4 + Math.random() * 5;
+    c.style.cssText = `left:${screenX}px;top:${screenY}px;width:${size}px;height:${size}px;background:${color};border-radius:${Math.random()>.5?'50%':'1px'};`;
     container.appendChild(c);
-  }
-
-  // Override animation with custom endpoint per particle
-  container.querySelectorAll('.confetti').forEach(c => {
-    const dx = c.style.getPropertyValue('--dx');
-    const dy = c.style.getPropertyValue('--dy');
     c.animate([
       { opacity:1, transform:'translate(0,0) rotate(0deg) scale(1)' },
-      { opacity:0, transform:`translate(${dx},${dy}) rotate(${360+Math.random()*360}deg) scale(0.2)` }
-    ], { duration: 600 + Math.random()*400, easing:'ease-out', fill:'forwards' });
-  });
-
+      { opacity:0, transform:`translate(${dx}px,${dy}px) rotate(${400+Math.random()*400}deg) scale(0.1)` }
+    ], { duration: 700 + Math.random()*500, easing:'ease-out', fill:'forwards' });
+  }
   setTimeout(() => container.remove(), 1500);
 }
 
@@ -722,8 +809,11 @@ document.addEventListener('touchend', e => {
   lastTap = now;
 }, { passive: false });
 
-// Build reference on load (after preloading logos)
-preloadLogos().then(() => buildRefList());
+// Build reference on load (after loading logos from IndexedDB)
+loadAllLogos().then(() => {
+  buildRefList();
+  updateLogoStatus();
+});
 </script>
 </body>
 </html>
