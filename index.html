@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>MLB City Match</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a1628;color:#e0e8f0;overflow-x:hidden;min-height:100vh;min-height:100dvh;}
+
+/* Buttons */
+.btn{padding:8px 14px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;}
+.btn-primary{background:linear-gradient(135deg,#ff6b35,#e05520);color:#fff;}
+.btn-primary:hover{transform:scale(1.05);}
+.btn-secondary{background:rgba(255,255,255,.1);color:#c0d0e0;border:1px solid rgba(255,255,255,.2);}
+.btn-secondary.active{background:rgba(255,107,53,.3);border-color:#ff6b35;color:#ff6b35;}
+.btn-small{padding:5px 10px;font-size:11px;}
+
+/* Screens */
+.screen{display:none;}.screen.active{display:flex;flex-direction:column;}
+
+/* ===== MENU ===== */
+#menu-screen{align-items:center;padding:20px;gap:20px;min-height:100vh;min-height:100dvh;overflow-y:auto;}
+.menu-title{font-size:32px;font-weight:800;text-align:center;background:linear-gradient(90deg,#ff6b35,#ffd700);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-top:24px;}
+.menu-subtitle{font-size:13px;color:#8090a0;text-align:center;margin-top:-8px;}
+.menu-section{width:100%;max-width:420px;}
+.menu-section h3{font-size:12px;color:#8090a0;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;}
+.player-inputs{display:flex;flex-direction:column;gap:8px;}
+.player-input{display:flex;align-items:center;gap:8px;}
+.player-input label{font-size:14px;min-width:70px;}
+.player-input input{flex:1;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.05);color:#fff;font-size:14px;}
+.player-input input::placeholder{color:#506070;}
+.filter-group{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+
+/* Reference list */
+.ref-toggle{width:100%;text-align:left;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#a0b0c0;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;align-items:center;}
+.ref-toggle .arrow{transition:transform .3s;}
+.ref-toggle.open .arrow{transform:rotate(180deg);}
+.ref-list{max-height:0;overflow:hidden;transition:max-height .4s ease;border-radius:0 0 10px 10px;}
+.ref-list.open{max-height:2000px;overflow-y:auto;}
+.ref-filters{display:flex;gap:8px;flex-wrap:wrap;padding:8px 8px 0;}
+.ref-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;}
+.ref-table th{text-align:left;padding:6px 8px;color:#8090a0;border-bottom:1px solid rgba(255,255,255,.1);position:sticky;top:0;background:#0a1628;}
+.ref-table td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.05);}
+.ref-table tr:hover td{background:rgba(255,255,255,.03);}
+.ref-icon{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;color:#fff;vertical-align:middle;margin-right:4px;border:1.5px solid rgba(255,255,255,.3);}
+.ref-division{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.08);color:#8090a0;}
+
+/* ===== GAME ===== */
+#game-screen{height:100vh;height:100dvh;}
+.header{background:linear-gradient(135deg,#1a2a4a,#0d1b33);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #2a4a7a;flex-shrink:0;}
+.header h1{font-size:16px;background:linear-gradient(90deg,#ff6b35,#ffd700);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.game-info{display:flex;justify-content:space-between;align-items:center;padding:6px 16px;background:rgba(0,0,0,.3);font-size:12px;flex-shrink:0;}
+.player-turn{color:#ffd700;font-weight:600;}
+.score{color:#8090a0;}
+.game-instruction{text-align:center;padding:6px;font-size:12px;color:#ffd700;background:rgba(255,215,0,.08);flex-shrink:0;}
+
+.game-area{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+
+/* Map */
+.map-container{flex:1;position:relative;min-height:0;}
+.map-container svg{width:100%;height:100%;}
+.state-path{fill:rgba(30,50,80,.5);stroke:rgba(100,150,200,.3);stroke-width:.5px;transition:fill .2s;}
+.city-dot{cursor:pointer;transition:all .2s;}
+.city-dot:hover{filter:drop-shadow(0 0 6px rgba(255,215,0,.8));}
+.city-dot.highlight{filter:drop-shadow(0 0 6px rgba(255,215,0,.8));animation:pulse 1s infinite;}
+.city-dot.matched{filter:drop-shadow(0 0 4px rgba(76,175,80,.6));}
+.city-dot.selected{filter:drop-shadow(0 0 8px rgba(0,150,255,1));}
+.city-label{font-size:9px;fill:#8899aa;pointer-events:none;font-family:sans-serif;text-shadow:0 0 3px #0a1628,0 0 3px #0a1628;}
+.correct-mark{fill:none;stroke:#4CAF50;stroke-width:2;}
+.wrong-mark{fill:none;stroke:#f44336;stroke-width:2;}
+@keyframes pulse{0%,100%{opacity:.7}50%{opacity:1}}
+
+/* Teams panel */
+.teams-panel{display:flex;flex-wrap:wrap;gap:5px;padding:8px;justify-content:center;overflow-y:auto;max-height:35vh;flex-shrink:0;border-top:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.2);}
+.team-badge{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:8px;cursor:pointer;transition:all .2s;border:2px solid transparent;user-select:none;-webkit-user-select:none;}
+.team-badge.matched{opacity:.35;pointer-events:none;border-color:#4CAF50;}
+.team-badge.candidate{border-color:rgba(255,215,0,.5);animation:pulse .8s infinite;}
+.team-badge.wrong{animation:shake .5s;}
+.team-icon{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0;border:1.5px solid rgba(255,255,255,.3);}
+.team-badge span{font-size:11px;font-weight:600;white-space:nowrap;}
+
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+/* Result */
+#result-screen{align-items:center;justify-content:center;min-height:100vh;padding:20px;gap:20px;}
+.result-card{background:linear-gradient(135deg,#1a2a4a,#0d1b33);border-radius:16px;padding:24px;width:100%;max-width:400px;border:1px solid rgba(255,255,255,.1);}
+.result-card h2{text-align:center;margin-bottom:16px;color:#ffd700;}
+.result-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.result-name{font-weight:600;}
+.result-score{color:#ffd700;font-weight:700;font-size:18px;}
+.result-detail{font-size:12px;color:#8090a0;}
+.winner-banner{font-size:22px;font-weight:800;text-align:center;background:linear-gradient(90deg,#ffd700,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:8px 0;}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:200;animation:toastIn .3s ease,toastOut .3s ease 1.7s forwards;pointer-events:none;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis;}
+.toast.correct{background:rgba(76,175,80,.9);color:#fff;}
+.toast.wrong{background:rgba(244,67,54,.9);color:#fff;}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes toastOut{from{opacity:1}to{opacity:0}}
+
+/* Desktop */
+@media(min-width:768px){
+  .game-area{flex-direction:row;}
+  .map-container{flex:1;}
+  .teams-panel{flex-direction:column;flex-wrap:nowrap;width:180px;max-height:none;border-top:none;border-left:1px solid rgba(255,255,255,.1);}
+}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- ===== MENU ===== -->
+<div id="menu-screen" class="screen active">
+  <div class="menu-title">MLB City Match</div>
+  <div class="menu-subtitle">チーム × 都市 マッチングゲーム</div>
+
+  <div class="menu-section">
+    <h3>プレイヤー</h3>
+    <div class="player-inputs">
+      <div class="player-input"><label>Player 1</label><input type="text" id="p1-name" placeholder="名前を入力" value="Player 1"></div>
+      <div class="player-input"><label>Player 2</label><input type="text" id="p2-name" placeholder="名前を入力（ソロなら空欄）"></div>
+    </div>
+  </div>
+
+  <div class="menu-section">
+    <h3>リーグ</h3>
+    <div class="filter-group" id="league-filter">
+      <button class="btn btn-secondary btn-small active" data-val="all">全チーム</button>
+      <button class="btn btn-secondary btn-small" data-val="AL">ア・リーグ</button>
+      <button class="btn btn-secondary btn-small" data-val="NL">ナ・リーグ</button>
+    </div>
+    <h3>地区</h3>
+    <div class="filter-group" id="division-filter">
+      <button class="btn btn-secondary btn-small active" data-val="all">全地区</button>
+      <button class="btn btn-secondary btn-small" data-val="East">東地区</button>
+      <button class="btn btn-secondary btn-small" data-val="Central">中地区</button>
+      <button class="btn btn-secondary btn-small" data-val="West">西地区</button>
+    </div>
+    <h3>最大出題数</h3>
+    <div class="filter-group" id="count-filter">
+      <button class="btn btn-secondary btn-small" data-val="5">5問</button>
+      <button class="btn btn-secondary btn-small active" data-val="10">10問</button>
+      <button class="btn btn-secondary btn-small" data-val="15">15問</button>
+      <button class="btn btn-secondary btn-small" data-val="all">全部</button>
+    </div>
+  </div>
+
+  <div class="menu-section">
+    <button class="ref-toggle" id="ref-toggle" onclick="toggleRef()">
+      <span>予習・復習：チーム＆都市一覧</span>
+      <span class="arrow">▼</span>
+    </button>
+    <div class="ref-list" id="ref-list">
+      <div class="ref-filters">
+        <div class="filter-group" id="ref-league-filter">
+          <button class="btn btn-secondary btn-small active" data-val="all" onclick="filterRef()">全て</button>
+          <button class="btn btn-secondary btn-small" data-val="AL" onclick="filterRef()">AL</button>
+          <button class="btn btn-secondary btn-small" data-val="NL" onclick="filterRef()">NL</button>
+        </div>
+        <div class="filter-group" id="ref-division-filter">
+          <button class="btn btn-secondary btn-small active" data-val="all" onclick="filterRef()">全地区</button>
+          <button class="btn btn-secondary btn-small" data-val="East" onclick="filterRef()">東</button>
+          <button class="btn btn-secondary btn-small" data-val="Central" onclick="filterRef()">中</button>
+          <button class="btn btn-secondary btn-small" data-val="West" onclick="filterRef()">西</button>
+        </div>
+      </div>
+      <div id="ref-table-container"></div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" style="width:100%;max-width:420px;padding:14px;font-size:16px;" onclick="startGame()">ゲームスタート</button>
+  <div style="height:20px;"></div>
+</div>
+
+<!-- ===== GAME ===== -->
+<div id="game-screen" class="screen">
+  <div class="header">
+    <h1>MLB City Match</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span id="progress" style="font-size:12px;color:#8090a0;"></span>
+      <button class="btn btn-secondary btn-small" onclick="showMenu()">メニュー</button>
+    </div>
+  </div>
+  <div class="game-info">
+    <span class="player-turn" id="turn-display"></span>
+    <span class="score" id="score-display"></span>
+  </div>
+  <div class="game-instruction" id="instruction">地図上の都市をタップしてください</div>
+  <div class="game-area">
+    <div class="map-container" id="map-container"></div>
+    <div class="teams-panel" id="teams-panel"></div>
+  </div>
+</div>
+
+<!-- ===== RESULT ===== -->
+<div id="result-screen" class="screen">
+  <div id="result-content"></div>
+  <button class="btn btn-primary" style="padding:14px 40px;font-size:16px;" onclick="showMenu()">もう一度遊ぶ</button>
+</div>
+
+<script>
+// ===== MLB DATA =====
+// 座標は緯度経度（D3投影で正確な位置に配置）
+const MLB_TEAMS = [
+  // AL East
+  { name:"ヤンキース", abbr:"NYY", city:"ニューヨーク", cityEn:"New York, NY", league:"AL", division:"East", color1:"#003087", color2:"#c4ced4", lat:40.829, lon:-73.926 },
+  { name:"レッドソックス", abbr:"BOS", city:"ボストン", state:"マサチューセッツ州", cityEn:"Boston, MA", league:"AL", division:"East", color1:"#BD3039", color2:"#0C2340", lat:42.346, lon:-71.098 },
+  { name:"オリオールズ", abbr:"BAL", city:"ボルチモア", state:"メリーランド州", cityEn:"Baltimore, MD", league:"AL", division:"East", color1:"#DF4601", color2:"#000000", lat:39.284, lon:-76.622 },
+  { name:"レイズ", abbr:"TB", city:"タンパベイ", state:"フロリダ州", cityEn:"Tampa Bay, FL", league:"AL", division:"East", color1:"#092C5C", color2:"#8FBCE6", lat:27.768, lon:-82.653 },
+  { name:"ブルージェイズ", abbr:"TOR", city:"トロント", state:"カナダ", cityEn:"Toronto, ON", league:"AL", division:"East", color1:"#134A8E", color2:"#E8291C", lat:43.641, lon:-79.389 },
+  // AL Central
+  { name:"ガーディアンズ", abbr:"CLE", city:"クリーブランド", state:"オハイオ州", cityEn:"Cleveland, OH", league:"AL", division:"Central", color1:"#00385D", color2:"#E50022", lat:41.496, lon:-81.685 },
+  { name:"ツインズ", abbr:"MIN", city:"ミネアポリス", state:"ミネソタ州", cityEn:"Minneapolis, MN", league:"AL", division:"Central", color1:"#002B5C", color2:"#D31145", lat:44.982, lon:-93.278 },
+  { name:"ホワイトソックス", abbr:"CWS", city:"シカゴ", state:"イリノイ州", cityEn:"Chicago, IL", league:"AL", division:"Central", color1:"#27251F", color2:"#C4CED4", lat:41.830, lon:-87.634 },
+  { name:"タイガース", abbr:"DET", city:"デトロイト", state:"ミシガン州", cityEn:"Detroit, MI", league:"AL", division:"Central", color1:"#0C2340", color2:"#FA4616", lat:42.339, lon:-83.049 },
+  { name:"ロイヤルズ", abbr:"KC", city:"カンザスシティ", state:"ミズーリ州", cityEn:"Kansas City, MO", league:"AL", division:"Central", color1:"#004687", color2:"#BD9B60", lat:39.052, lon:-94.481 },
+  // AL West
+  { name:"アストロズ", abbr:"HOU", city:"ヒューストン", state:"テキサス州", cityEn:"Houston, TX", league:"AL", division:"West", color1:"#002D62", color2:"#EB6E1F", lat:29.757, lon:-95.355 },
+  { name:"マリナーズ", abbr:"SEA", city:"シアトル", state:"ワシントン州", cityEn:"Seattle, WA", league:"AL", division:"West", color1:"#0C2C56", color2:"#005C5C", lat:47.591, lon:-122.332 },
+  { name:"エンゼルス", abbr:"LAA", city:"アナハイム", state:"カリフォルニア州", cityEn:"Anaheim, CA", league:"AL", division:"West", color1:"#BA0021", color2:"#003263", lat:33.800, lon:-117.883 },
+  { name:"アスレチックス", abbr:"OAK", city:"サクラメント", state:"カリフォルニア州", cityEn:"Sacramento, CA", league:"AL", division:"West", color1:"#003831", color2:"#EFB21E", lat:38.581, lon:-121.494 },
+  { name:"レンジャーズ", abbr:"TEX", city:"アーリントン", state:"テキサス州", cityEn:"Arlington, TX", league:"AL", division:"West", color1:"#003278", color2:"#C0111F", lat:32.751, lon:-97.083 },
+  // NL East
+  { name:"ブレーブス", abbr:"ATL", city:"アトランタ", state:"ジョージア州", cityEn:"Atlanta, GA", league:"NL", division:"East", color1:"#CE1141", color2:"#13274F", lat:33.891, lon:-84.468 },
+  { name:"メッツ", abbr:"NYM", city:"ニューヨーク", cityEn:"New York, NY", league:"NL", division:"East", color1:"#002D72", color2:"#FF5910", lat:40.757, lon:-73.846 },
+  { name:"フィリーズ", abbr:"PHI", city:"フィラデルフィア", state:"ペンシルベニア州", cityEn:"Philadelphia, PA", league:"NL", division:"East", color1:"#E81828", color2:"#002D72", lat:39.906, lon:-75.167 },
+  { name:"マーリンズ", abbr:"MIA", city:"マイアミ", state:"フロリダ州", cityEn:"Miami, FL", league:"NL", division:"East", color1:"#00A3E0", color2:"#EF3340", lat:25.778, lon:-80.220 },
+  { name:"ナショナルズ", abbr:"WSH", city:"ワシントンD.C.", cityEn:"Washington, D.C.", league:"NL", division:"East", color1:"#AB0003", color2:"#14225A", lat:38.873, lon:-77.007 },
+  // NL Central
+  { name:"カブス", abbr:"CHC", city:"シカゴ", state:"イリノイ州", cityEn:"Chicago, IL", league:"NL", division:"Central", color1:"#0E3386", color2:"#CC3433", lat:41.948, lon:-87.656 },
+  { name:"カージナルス", abbr:"STL", city:"セントルイス", state:"ミズーリ州", cityEn:"St. Louis, MO", league:"NL", division:"Central", color1:"#C41E3A", color2:"#0C2340", lat:38.623, lon:-90.193 },
+  { name:"ブリュワーズ", abbr:"MIL", city:"ミルウォーキー", state:"ウィスコンシン州", cityEn:"Milwaukee, WI", league:"NL", division:"Central", color1:"#FFC52F", color2:"#12284B", lat:43.028, lon:-87.971 },
+  { name:"レッズ", abbr:"CIN", city:"シンシナティ", state:"オハイオ州", cityEn:"Cincinnati, OH", league:"NL", division:"Central", color1:"#C6011F", color2:"#000000", lat:39.097, lon:-84.508 },
+  { name:"パイレーツ", abbr:"PIT", city:"ピッツバーグ", state:"ペンシルベニア州", cityEn:"Pittsburgh, PA", league:"NL", division:"Central", color1:"#27251F", color2:"#FDB827", lat:40.447, lon:-80.006 },
+  // NL West
+  { name:"ドジャース", abbr:"LAD", city:"ロサンゼルス", state:"カリフォルニア州", cityEn:"Los Angeles, CA", league:"NL", division:"West", color1:"#005A9C", color2:"#EF3E42", lat:34.074, lon:-118.240 },
+  { name:"パドレス", abbr:"SD", city:"サンディエゴ", state:"カリフォルニア州", cityEn:"San Diego, CA", league:"NL", division:"West", color1:"#2F241D", color2:"#FFC425", lat:32.707, lon:-117.157 },
+  { name:"ジャイアンツ", abbr:"SF", city:"サンフランシスコ", state:"カリフォルニア州", cityEn:"San Francisco, CA", league:"NL", division:"West", color1:"#FD5A1E", color2:"#27251F", lat:37.778, lon:-122.389 },
+  { name:"ダイヤモンドバックス", abbr:"ARI", city:"フェニックス", state:"アリゾナ州", cityEn:"Phoenix, AZ", league:"NL", division:"West", color1:"#A71930", color2:"#E3D4AD", lat:33.445, lon:-112.067 },
+  { name:"ロッキーズ", abbr:"COL", city:"デンバー", state:"コロラド州", cityEn:"Denver, CO", league:"NL", division:"West", color1:"#333366", color2:"#C4CED4", lat:39.756, lon:-104.994 },
+];
+
+// ===== STATE =====
+let state = { players:[], currentPlayer:0, teams:[], selectedCity:null, matchedPairs:[], scores:[0,0], totalQuestions:0, isSolo:false };
+let projection, svg, mapGroup, markerGroup, labelGroup;
+
+// ===== INIT =====
+function initMap() {
+  const container = document.getElementById('map-container');
+  container.innerHTML = '';
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+
+  svg = d3.select(container).append('svg').attr('width', w).attr('height', h);
+
+  projection = d3.geoAlbersUsa().fitSize([w - 20, h - 20], { type: "Sphere" });
+  // Adjust to fit nicely
+  projection.translate([w / 2, h / 2]).scale(projection.scale());
+
+  mapGroup = svg.append('g');
+  markerGroup = svg.append('g');
+  labelGroup = svg.append('g');
+
+  // Load US TopoJSON
+  d3.json('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json').then(us => {
+    const states = topojson.feature(us, us.objects.states);
+    const path = d3.geoPath().projection(projection);
+
+    // Refit projection to actual state geometry
+    projection.fitSize([w - 16, h - 16], states);
+
+    mapGroup.selectAll('path')
+      .data(states.features)
+      .enter().append('path')
+      .attr('d', path)
+      .attr('class', 'state-path');
+
+    // State borders
+    mapGroup.append('path')
+      .datum(topojson.mesh(us, us.objects.states, (a, b) => a !== b))
+      .attr('d', path)
+      .attr('fill', 'none')
+      .attr('stroke', 'rgba(100,150,200,.25)')
+      .attr('stroke-width', '.5');
+
+    renderMarkers();
+  }).catch(err => {
+    console.error('Map load error:', err);
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#f44336;">地図の読み込みに失敗しました。ネット接続を確認してください。</div>';
+  });
+}
+
+function renderMarkers() {
+  markerGroup.selectAll('*').remove();
+  labelGroup.selectAll('*').remove();
+
+  // Group teams by city to handle overlapping cities (NYY/NYM, CWS/CHC, LAD/LAA)
+  const cityGroups = {};
+  state.teams.forEach(t => {
+    const key = `${t.lat.toFixed(1)}_${t.lon.toFixed(1)}`;
+    if (!cityGroups[key]) cityGroups[key] = [];
+    cityGroups[key].push(t);
+  });
+
+  state.teams.forEach((team, i) => {
+    const pos = projection([team.lon, team.lat]);
+    if (!pos) return; // Toronto may be outside projection
+
+    // Offset for same-city teams
+    const key = `${team.lat.toFixed(1)}_${team.lon.toFixed(1)}`;
+    const group = cityGroups[key];
+    const idx = group.indexOf(team);
+    const offsetX = group.length > 1 ? (idx - (group.length - 1) / 2) * 8 : 0;
+
+    const px = pos[0] + offsetX;
+    const py = pos[1];
+    team._px = px;
+    team._py = py;
+
+    const isMatched = state.matchedPairs.includes(team.abbr);
+
+    // Dot
+    const dot = markerGroup.append('circle')
+      .attr('cx', px).attr('cy', py).attr('r', 4)
+      .attr('fill', isMatched ? '#4CAF50' : '#ffd700')
+      .attr('stroke', isMatched ? '#2E7D32' : 'rgba(255,255,255,.6)')
+      .attr('stroke-width', 1)
+      .attr('class', 'city-dot' + (isMatched ? ' matched' : ''))
+      .attr('data-abbr', team.abbr)
+      .style('cursor', isMatched ? 'default' : 'pointer');
+
+    if (!isMatched) {
+      dot.on('click', () => onCityClick(team));
+    }
+
+    // Label
+    const labelText = team.state ? `${team.city}(${team.state.replace('州','')})` : team.city;
+    labelGroup.append('text')
+      .attr('x', px).attr('y', py - 7)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'city-label')
+      .text(labelText);
+
+    // Show team name on matched
+    if (isMatched) {
+      markerGroup.append('text')
+        .attr('x', px).attr('y', py + 12)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '7px')
+        .attr('fill', '#4CAF50')
+        .attr('font-weight', '600')
+        .attr('font-family', 'sans-serif')
+        .text(team.abbr);
+    }
+  });
+}
+
+// ===== GAME LOGIC =====
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function showMenu() { showScreen('menu-screen'); }
+
+function getFilterValue(groupId) {
+  const a = document.querySelector(`#${groupId} .btn.active`);
+  return a ? a.dataset.val : 'all';
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startGame() {
+  const p1 = document.getElementById('p1-name').value.trim() || 'Player 1';
+  const p2 = document.getElementById('p2-name').value.trim();
+  state.isSolo = !p2;
+  state.players = state.isSolo ? [p1] : [p1, p2];
+  state.currentPlayer = 0;
+  state.scores = [0, 0];
+  state.matchedPairs = [];
+  state.selectedCity = null;
+
+  const league = getFilterValue('league-filter');
+  const division = getFilterValue('division-filter');
+  const countVal = getFilterValue('count-filter');
+
+  let filtered = MLB_TEAMS.filter(t => {
+    if (league !== 'all' && t.league !== league) return false;
+    if (division !== 'all' && t.division !== division) return false;
+    return true;
+  });
+
+  filtered = shuffle(filtered);
+  const count = countVal === 'all' ? filtered.length : Math.min(parseInt(countVal), filtered.length);
+  state.teams = filtered.slice(0, count);
+  state.totalQuestions = state.teams.length;
+
+  showScreen('game-screen');
+  updateInfo();
+  renderTeamBadges();
+
+  // Init map after screen is visible (needs dimensions)
+  requestAnimationFrame(() => initMap());
+}
+
+function updateInfo() {
+  const turnEl = document.getElementById('turn-display');
+  const scoreEl = document.getElementById('score-display');
+  const progEl = document.getElementById('progress');
+  const instrEl = document.getElementById('instruction');
+
+  if (state.isSolo) {
+    turnEl.textContent = state.players[0];
+    scoreEl.textContent = `${state.scores[0]}/${state.totalQuestions} 正解`;
+  } else {
+    turnEl.textContent = `${state.players[state.currentPlayer]} のターン`;
+    scoreEl.textContent = `${state.players[0]}: ${state.scores[0]} | ${state.players[1]}: ${state.scores[1]}`;
+  }
+  progEl.textContent = `${state.matchedPairs.length}/${state.totalQuestions}`;
+
+  if (state.selectedCity) {
+    instrEl.textContent = `「${state.selectedCity.city}」のチームを下から選んでください`;
+    instrEl.style.background = 'rgba(0,150,255,.12)';
+  } else {
+    instrEl.textContent = '地図上の都市をタップしてください';
+    instrEl.style.background = 'rgba(255,215,0,.08)';
+  }
+}
+
+function renderTeamBadges() {
+  const panel = document.getElementById('teams-panel');
+  panel.innerHTML = '';
+  const shuffled = shuffle(state.teams);
+  shuffled.forEach(team => {
+    const isMatched = state.matchedPairs.includes(team.abbr);
+    const isCandidate = state.selectedCity && !isMatched;
+    const div = document.createElement('div');
+    div.className = 'team-badge' + (isMatched ? ' matched' : '') + (isCandidate ? ' candidate' : '');
+    div.style.background = `linear-gradient(135deg,${team.color1}66,${team.color2}33)`;
+    div.dataset.abbr = team.abbr;
+    div.innerHTML = `<div class="team-icon" style="background:${team.color1};border-color:${team.color2}">${team.abbr}</div><span>${team.name}</span>`;
+    if (!isMatched) {
+      div.addEventListener('click', () => onTeamClick(team));
+    }
+    panel.appendChild(div);
+  });
+}
+
+function onCityClick(team) {
+  if (state.matchedPairs.includes(team.abbr)) return;
+
+  // Deselect previous
+  markerGroup.selectAll('.city-dot').classed('selected', false).classed('highlight', false);
+
+  // Select this city
+  state.selectedCity = team;
+  markerGroup.select(`[data-abbr="${team.abbr}"]`).classed('selected', true);
+
+  // Highlight all unmatched dots
+  state.teams.forEach(t => {
+    if (!state.matchedPairs.includes(t.abbr) && t.abbr !== team.abbr) {
+      markerGroup.select(`[data-abbr="${t.abbr}"]`).classed('highlight', false);
+    }
+  });
+
+  updateInfo();
+  renderTeamBadges();
+}
+
+function onTeamClick(team) {
+  if (!state.selectedCity) {
+    showToast('先に地図上の都市をタップしてね', 'wrong');
+    return;
+  }
+  if (state.matchedPairs.includes(team.abbr)) return;
+
+  const cityTeam = state.selectedCity; // The city dot the player tapped
+  const isCorrect = team.abbr === cityTeam.abbr;
+
+  if (isCorrect) {
+    state.matchedPairs.push(team.abbr);
+    state.scores[state.currentPlayer]++;
+    showToast(`⭕ 正解！ ${team.city} → ${team.name}`, 'correct');
+
+    // Mark dot as matched
+    markerGroup.select(`[data-abbr="${team.abbr}"]`)
+      .classed('selected', false).classed('matched', true)
+      .transition().attr('fill', '#4CAF50').attr('stroke', '#2E7D32');
+
+    // Show checkmark
+    if (team._px) {
+      markerGroup.append('path')
+        .attr('d', `M${team._px - 4},${team._py} L${team._px - 1},${team._py + 3} L${team._px + 4},${team._py - 3}`)
+        .attr('class', 'correct-mark')
+        .attr('opacity', 0)
+        .transition().attr('opacity', 1);
+    }
+  } else {
+    showToast(`❌ 残念… ここは ${cityTeam.name}（${cityTeam.city}）だよ`, 'wrong');
+
+    // Flash wrong on badge
+    const badge = document.querySelector(`.team-badge[data-abbr="${team.abbr}"]`);
+    if (badge) { badge.classList.add('wrong'); setTimeout(() => badge.classList.remove('wrong'), 500); }
+
+    // Flash city dot
+    markerGroup.select(`[data-abbr="${cityTeam.abbr}"]`)
+      .classed('selected', false)
+      .transition().attr('fill', '#f44336').duration(300)
+      .transition().attr('fill', '#ffd700').duration(300);
+
+    // Mark as done (move on)
+    state.matchedPairs.push(cityTeam.abbr);
+  }
+
+  state.selectedCity = null;
+  if (!state.isSolo) state.currentPlayer = (state.currentPlayer + 1) % 2;
+
+  if (state.matchedPairs.length >= state.totalQuestions) {
+    setTimeout(showResults, 1200);
+  }
+
+  updateInfo();
+  renderMarkers();
+  renderTeamBadges();
+}
+
+function showToast(msg, type) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const div = document.createElement('div');
+  div.className = `toast ${type}`;
+  div.textContent = msg;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 2200);
+}
+
+function showResults() {
+  showScreen('result-screen');
+  const content = document.getElementById('result-content');
+  if (state.isSolo) {
+    const pct = Math.round((state.scores[0] / state.totalQuestions) * 100);
+    let grade = pct === 100 ? 'パーフェクト！' : pct >= 80 ? 'すごい！' : pct >= 60 ? 'なかなか！' : pct >= 40 ? 'もう少し！' : '地図を見て覚えよう！';
+    content.innerHTML = `<div class="result-card"><h2>結果発表</h2><div class="winner-banner">${grade}</div><div style="text-align:center;margin:16px 0;"><div style="font-size:48px;font-weight:800;color:#ffd700;">${state.scores[0]}/${state.totalQuestions}</div><div style="color:#8090a0;margin-top:4px;">正解率 ${pct}%</div></div><div style="text-align:center;font-size:14px;color:#8090a0;">${state.players[0]} さん、お疲れさま！</div></div>`;
+  } else {
+    const w = state.scores[0] > state.scores[1] ? 0 : state.scores[1] > state.scores[0] ? 1 : -1;
+    const wt = w === -1 ? '引き分け！' : `${state.players[w]} の勝ち！`;
+    content.innerHTML = `<div class="result-card"><h2>結果発表</h2><div class="winner-banner">${wt}</div><div style="margin-top:16px;"><div class="result-row"><span class="result-name">${state.players[0]}</span><div><span class="result-score">${state.scores[0]}</span><span class="result-detail"> / ${state.totalQuestions}</span></div></div><div class="result-row"><span class="result-name">${state.players[1]}</span><div><span class="result-score">${state.scores[1]}</span><span class="result-detail"> / ${state.totalQuestions}</span></div></div></div></div>`;
+  }
+}
+
+// ===== REFERENCE LIST =====
+const divNames = { East: '東地区', Central: '中地区', West: '西地区' };
+
+function buildRefList(leagueFilter, divisionFilter) {
+  leagueFilter = leagueFilter || 'all';
+  divisionFilter = divisionFilter || 'all';
+  const divisions = ['East', 'Central', 'West'];
+  const leagues = ['AL', 'NL'];
+
+  let html = '<table class="ref-table"><thead><tr><th>チーム</th><th>都市</th><th>所属</th></tr></thead><tbody>';
+  let count = 0;
+  leagues.forEach(lg => {
+    if (leagueFilter !== 'all' && lg !== leagueFilter) return;
+    divisions.forEach(dv => {
+      if (divisionFilter !== 'all' && dv !== divisionFilter) return;
+      const teams = MLB_TEAMS.filter(t => t.league === lg && t.division === dv);
+      teams.forEach(t => {
+        const cityDisplay = t.state ? `${t.city} (${t.state})` : t.city;
+        html += `<tr>
+          <td><span class="ref-icon" style="background:${t.color1};border-color:${t.color2}">${t.abbr}</span>${t.name}</td>
+          <td>${cityDisplay}<br><span style="font-size:10px;color:#607080">${t.cityEn}</span></td>
+          <td><span class="ref-division">${lg} ${divNames[dv]}</span></td>
+        </tr>`;
+        count++;
+      });
+    });
+  });
+  html += '</tbody></table>';
+  document.getElementById('ref-table-container').innerHTML = html;
+  return count;
+}
+
+function filterRef() {
+  // Use setTimeout to let the click handler on btn finish toggling active class
+  setTimeout(() => {
+    const lg = document.querySelector('#ref-league-filter .btn.active')?.dataset.val || 'all';
+    const dv = document.querySelector('#ref-division-filter .btn.active')?.dataset.val || 'all';
+    buildRefList(lg, dv);
+  }, 10);
+}
+
+function toggleRef() {
+  const toggle = document.getElementById('ref-toggle');
+  const list = document.getElementById('ref-list');
+  toggle.classList.toggle('open');
+  list.classList.toggle('open');
+}
+
+// ===== FILTER BUTTONS =====
+document.querySelectorAll('.filter-group').forEach(group => {
+  group.querySelectorAll('.btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+});
+
+// Prevent zoom on double-tap
+let lastTap = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTap < 300) e.preventDefault();
+  lastTap = now;
+}, { passive: false });
+
+// Build reference on load
+buildRefList();
+</script>
+</body>
+</html>
