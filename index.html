@@ -45,7 +45,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ref-table th{text-align:left;padding:6px 8px;color:#8090a0;border-bottom:1px solid rgba(255,255,255,.1);position:sticky;top:0;background:#0a1628;}
 .ref-table td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.05);}
 .ref-table tr:hover td{background:rgba(255,255,255,.03);}
-.ref-icon{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;color:#fff;vertical-align:middle;margin-right:4px;border:1.5px solid rgba(255,255,255,.3);}
+.ref-icon{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;color:#fff;vertical-align:middle;margin-right:6px;border:1.5px solid rgba(255,255,255,.3);overflow:hidden;}
+.ref-icon img{width:100%;height:100%;object-fit:contain;}
 .ref-division{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.08);color:#8090a0;}
 
 /* ===== GAME ===== */
@@ -79,7 +80,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .team-badge.matched{opacity:.35;pointer-events:none;border-color:#4CAF50;}
 .team-badge.candidate{border-color:rgba(255,215,0,.5);animation:pulse .8s infinite;}
 .team-badge.wrong{animation:shake .5s;}
-.team-icon{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0;border:1.5px solid rgba(255,255,255,.3);}
+.team-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0;border:1.5px solid rgba(255,255,255,.3);overflow:hidden;}
+.team-icon img{width:100%;height:100%;object-fit:contain;}
 .team-badge span{font-size:11px;font-weight:600;white-space:nowrap;}
 
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
@@ -243,6 +245,32 @@ const MLB_TEAMS = [
   { name:"ロッキーズ", abbr:"COL", city:"デンバー", state:"コロラド州", cityEn:"Denver, CO", league:"NL", division:"West", color1:"#333366", color2:"#C4CED4", lat:39.756, lon:-104.994 },
 ];
 
+// ===== LOGO SUPPORT =====
+// logos/ フォルダに {ABBR}.png を置けば自動で使う。無ければテキストにフォールバック。
+const LOGO_DIR = 'logos/';
+const logoCache = {}; // abbr -> true/false (exists or not)
+
+function checkLogo(abbr) {
+  return new Promise(resolve => {
+    if (abbr in logoCache) return resolve(logoCache[abbr]);
+    const img = new Image();
+    img.onload = () => { logoCache[abbr] = true; resolve(true); };
+    img.onerror = () => { logoCache[abbr] = false; resolve(false); };
+    img.src = LOGO_DIR + abbr + '.png';
+  });
+}
+
+async function preloadLogos() {
+  await Promise.all(MLB_TEAMS.map(t => checkLogo(t.abbr)));
+}
+
+function logoImgTag(abbr, size) {
+  if (logoCache[abbr]) {
+    return `<img src="${LOGO_DIR}${abbr}.png" alt="${abbr}" style="width:${size||'100%'};height:${size||'100%'};object-fit:contain;">`;
+  }
+  return abbr;
+}
+
 // ===== STATE =====
 let state = { players:[], currentPlayer:0, teams:[], selectedCity:null, matchedPairs:[], scores:[0,0], totalQuestions:0, isSolo:false };
 let projection, svg, mapGroup, markerGroup, labelGroup;
@@ -344,16 +372,24 @@ function renderMarkers() {
       .attr('class', 'city-label')
       .text(labelText);
 
-    // Show team name on matched
+    // Show logo or abbr on matched
     if (isMatched) {
-      markerGroup.append('text')
-        .attr('x', px).attr('y', py + 12)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '7px')
-        .attr('fill', '#4CAF50')
-        .attr('font-weight', '600')
-        .attr('font-family', 'sans-serif')
-        .text(team.abbr);
+      if (logoCache[team.abbr]) {
+        markerGroup.append('image')
+          .attr('href', LOGO_DIR + team.abbr + '.png')
+          .attr('x', px - 8).attr('y', py - 8)
+          .attr('width', 16).attr('height', 16)
+          .style('pointer-events', 'none');
+      } else {
+        markerGroup.append('text')
+          .attr('x', px).attr('y', py + 12)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', '7px')
+          .attr('fill', '#4CAF50')
+          .attr('font-weight', '600')
+          .attr('font-family', 'sans-serif')
+          .text(team.abbr);
+      }
     }
   });
 }
@@ -447,7 +483,7 @@ function renderTeamBadges() {
     div.className = 'team-badge' + (isMatched ? ' matched' : '') + (isCandidate ? ' candidate' : '');
     div.style.background = `linear-gradient(135deg,${team.color1}66,${team.color2}33)`;
     div.dataset.abbr = team.abbr;
-    div.innerHTML = `<div class="team-icon" style="background:${team.color1};border-color:${team.color2}">${team.abbr}</div><span>${team.name}</span>`;
+    div.innerHTML = `<div class="team-icon" style="background:${team.color1};border-color:${team.color2}">${logoImgTag(team.abbr)}</div><span>${team.name}</span>`;
     if (!isMatched) {
       div.addEventListener('click', () => onTeamClick(team));
     }
@@ -575,7 +611,7 @@ function buildRefList(leagueFilter, divisionFilter) {
       teams.forEach(t => {
         const cityDisplay = t.state ? `${t.city} (${t.state})` : t.city;
         html += `<tr>
-          <td><span class="ref-icon" style="background:${t.color1};border-color:${t.color2}">${t.abbr}</span>${t.name}</td>
+          <td><span class="ref-icon" style="background:${t.color1};border-color:${t.color2}">${logoImgTag(t.abbr)}</span>${t.name}</td>
           <td>${cityDisplay}<br><span style="font-size:10px;color:#607080">${t.cityEn}</span></td>
           <td><span class="ref-division">${lg} ${divNames[dv]}</span></td>
         </tr>`;
@@ -622,8 +658,8 @@ document.addEventListener('touchend', e => {
   lastTap = now;
 }, { passive: false });
 
-// Build reference on load
-buildRefList();
+// Build reference on load (after preloading logos)
+preloadLogos().then(() => buildRefList());
 </script>
 </body>
 </html>

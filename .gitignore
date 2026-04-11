@@ -1,0 +1,5 @@
+# Team logo images (personal use only, not for distribution)
+logos/*.png
+logos/*.jpg
+logos/*.svg
+!logos/README.txt
