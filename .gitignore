@@ -1,3 +1,8 @@
 # OS files
 .DS_Store
 Thumbs.db
+
+# Team logo images (copyrighted, personal use only)
+logos/*.png
+logos/*.jpg
+logos/*.svg
